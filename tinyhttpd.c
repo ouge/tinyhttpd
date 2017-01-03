@@ -70,17 +70,15 @@ int startup(u_short *port)
     int on = 1;
     struct sockaddr_in name;
     
-    // 创建套接字
     httpd = socket(AF_INET, SOCK_STREAM, 0);
     if (httpd == -1)
         error_die("socket");
     memset(&name, 0, sizeof(name));
     name.sin_family = AF_INET;
-    name.sin_port = htons(*port);
+    name.sin_port = htons(*port); 
     name.sin_addr.s_addr = htonl(INADDR_ANY); // INADDR_ANY: 通配地址
     if ((setsockopt(httpd, SOL_SOCKET, 
-                SO_REUSEADDR, &
-                , sizeof(on))) < 0)
+                SO_REUSEADDR, &on, sizeof(on))) < 0)
     {
         error_die("setsockopt failed");
     }
