@@ -6,46 +6,24 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <pthread.h>
 #include <unistd.h>
 
 #define SERVER_STRING "Server: jdbhttpd/0.1.0\r\n"
 
 
-// 处理从套接字上监听到的一个HTTP请求
 void accept_request(void *);
-
-// 返回给客户端这是一个错误请求
 void bad_request(int);
-
-// 读取服务器上某个文件写到socket套接字
 void cat(int, FILE*);
-
-// 处理执行cgi程序时发生的错误
 void cannot_execute(int);
-
-// 把错误信息写到perror并退出
 void error_die(const char*);
-
-// cgi处理程序
 void execute_cgi(int, const char*, const char*, const char*);
-
-// 读取套接字的一行
 int get_line(int, char*, int);
-
-// 把HTTP响应的头部写到套接字
 void headers(int, const char*);
-
-// 没找到路径名
 void not_found(int);
-
-// 调用cat把服务器文件返回给浏览器
 void serve_file(int, const char*);
-
-// 初始化httpd服务
 int startup(u_short*);
-
-// 返回给浏览器表明收到的HTTP请求所用的method不被支持
 void unimplemented(int);
 
 
@@ -303,7 +281,7 @@ void execute_cgi(int client, const char* path,
     int i;
     char c;
     int numchars = 1;
-    int cotent_length = -1;
+    int content_length = -1;
 
     buf[0] = 'A';
     buf[1] = '\0';
@@ -317,10 +295,10 @@ void execute_cgi(int client, const char* path,
         {
             buf[15] = '\0';
             if (strcasecmp(buf, "Content-Length:") == 0)
-                content_length = atoi(&buf[16])
+                content_length = atoi(&buf[16]);
             numchars = get_line(client, buf, sizeof(buf));
         }
-        if (bad_request == -1)
+        if (content_length == -1)
         {
             bad_request(client);
             return;
@@ -351,14 +329,92 @@ void execute_cgi(int client, const char* path,
     send(client, buf, strlen(buf), 0);
     if (pid == 0)
     {
-       char meth_env[255];
+        char meth_env[255];
+        char query_env[255];
+        char length_env[255];
+
+        dup2(cgi_output[1], STDOUT_FILENO);
+        dup2(cgi_input[0], STDIN_FILENO);
+        close(cgi_output[0]);
+        close(cgi_input[1]);
+        sprintf(meth_env, "REQUEST_METHOD=%s", method);
+        putenv(meth_env);
+        if (strcasecmp(method, "GET") == 0)
+        {
+            sprintf(query_env, "QUERY_STRING=%s", query_string);
+            putenv(query_env);
+        }
+        else
+        {
+            sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
+            putenv(length_env);
+        }
+        execl(path, "", NULL);
+        exit(0);
     }
     else
     {
+        close(cgi_output[1]);
+        close(cgi_input[0]);
+        if (strcasecmp(method, "POST") == 0)
+        {
+            for (i = 0; i < content_length; i++)
+            {
+                recv(client, &c, 1, 0);
+                write(cgi_input[1], &c, 1);
+            }
+        }
+        while (read(cgi_output[0], &c, 1) > 0)
+            send(client, &c, 1, 0);
 
+        close(cgi_output[0]);
+        close(cgi_input[1]);
+        waitpid(pid, &status, 0);
     }
 }
 
+void bad_request(int client)
+{
+    char buf[1024];
 
+    sprintf(buf, "HTTP/1.0 400 BAD REQUEST\r\n");
+    send(client, buf, sizeof(buf), 0);
+    sprintf(buf, "Content-type: text/html\r\n");
+    send(client, buf, sizeof(buf), 0);
+    sprintf(buf, "\r\n");
+    send(client, buf, sizeof(buf), 0);
+    sprintf(buf, "<P>Your browser sent a bad request, ");
+    send(client, buf, sizeof(buf), 0);
+    sprintf(buf, "such as a POST without a Content-Length.\r\n");
+    send(client, buf, sizeof(buf), 0);
+}
 
+int get_line(int sock, char* buf, int size)
+{
+    int i = 0;
+    char c = '\0';
+    int n;
 
+    while ((i < size - 1) && (c != '\n'))
+    {
+        n = recv(sock, &c, 1, 0);
+        if (n > 0)
+        {
+            if (c == '\r')
+            {
+                n = recv(sock, &c, 1, MSG_PEEK);
+                if ((n > 0) && (c == '\n'))
+                    recv(sock, &c, 1, 0);
+                else
+                    c = '\n';
+            }
+            buf[i] = c;
+            i++;
+        }
+        else
+            c = '\0';
+    }
+    buf[i] = '\0';
+
+    return(i);
+}
