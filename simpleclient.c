@@ -1,6 +1,10 @@
-#include
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
 
-int main(int argc, char* argv[])
+int main(void)
 {
     int sockfd;
     int len;
