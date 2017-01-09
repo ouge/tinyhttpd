@@ -48,6 +48,8 @@ int main(void)
                 &client_name_len);
         if (client_sock == -1)
             error_die("accept");
+        else
+            printf("accept success\n");
         if (pthread_create(&newthread, NULL,
                     (void*)accept_request, (void*)&client_sock) != 0)
             perror("pthread_create");
